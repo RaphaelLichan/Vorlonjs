@@ -3,7 +3,9 @@ module VORLON {
 		id: string;
 		title : string;
 		nodeTypes : string[];
-		check : any;
+		prepare? : (rulecheck, analyse, htmlcontent) => void;
+		check : (node, rulecheck, analyse, htmlcontent) => void;
+		endcheck? : (rulecheck, analyse, htmlcontent) => void;
 		generalRule? : boolean;
 		description?: string;
 	}
@@ -11,18 +13,18 @@ module VORLON {
 	export interface ICSSRule{
 		id: string;
 		title : string;
-		check : any;
+		prepare? : (rulecheck, analyseSummary) => void;
+		check : (url: string, ast, rulecheck, analyseSummary) => void;
+		endcheck? : (rulecheck, analyseSummary) => void;
 		description?: string;
 	}
 	
-	export interface DataResult {
-		lineNumber: number;
-		file: string;
-		testName: string;		
-	}
-	
-	export interface ResultCSSPrefixe {
-		prefixesMissing: Array<any>;
-		selector: string;
-	}
+	export interface IScriptRule{
+		id: string;
+		title : string;
+		prepare? : (rulecheck: any, analyseSummary: any) => void;
+		check : (url: string, javascriptContent: string, rulecheck: any, analyseSummary: any) => void;
+		endcheck? : (rulecheck: any, analyseSummary: any) => void;
+		description?: string;
+	}		
 }
