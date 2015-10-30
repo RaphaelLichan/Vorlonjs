@@ -5,7 +5,8 @@ module VORLON {
     var rulesLabels = {
         "webstandards": "Web standards",
         "accessibility": "Accessibility",
-        "performances": "Performances"
+        "performances": "Performances",
+        "mobileweb": "Mobile web",
     }
 
     export class WebStandardsDashboard extends DashboardPlugin {
@@ -19,9 +20,10 @@ module VORLON {
         private _startCheckButton: HTMLButtonElement;
         private _cancelCheckButton: HTMLButtonElement;
         private _rootDiv: HTMLElement;
-        private _currentAnalyse = null;
+        private _currentAnalyze = null;
         private _rulesPanel: WebStandardsRulesPanel = null;
         private _ruleDetailPanel: WebStandardsRuleDetailPanel = null;
+        public analyzeCssFallback: boolean = true;
 
         public startDashboardSide(div: HTMLDivElement = null): void {
             var script = <HTMLScriptElement>document.createElement("SCRIPT");
@@ -29,8 +31,8 @@ module VORLON {
             document.body.appendChild(script);
 
             this._insertHtmlContentAsync(div, (filledDiv) => {
-                this._ruleDetailPanel = new WebStandardsRuleDetailPanel(filledDiv.querySelector('#webstandards-ruledetailpanel'));
-                this._rulesPanel = new WebStandardsRulesPanel(filledDiv.querySelector('#webstandards-rulespanel'), this._ruleDetailPanel);
+                this._ruleDetailPanel = new WebStandardsRuleDetailPanel(this, filledDiv.querySelector('#webstandards-ruledetailpanel'));
+                this._rulesPanel = new WebStandardsRulesPanel(this, filledDiv.querySelector('#webstandards-rulespanel'), this._ruleDetailPanel);
 
                 this._startCheckButton = <HTMLButtonElement>filledDiv.querySelector('#startCheck');
                 this._cancelCheckButton = <HTMLButtonElement>filledDiv.querySelector('#cancelCheck');
@@ -39,20 +41,20 @@ module VORLON {
                 this._startCheckButton.addEventListener("click", (evt) => {
                     this._startCheckButton.disabled = true;
                     this._cancelCheckButton.disabled = false;
-                    this._currentAnalyse = { 
-                        processing: true, 
-                        id: VORLON.Tools.CreateGUID() 
+                    this._currentAnalyze = {
+                        processing: true,
+                        id: VORLON.Tools.CreateGUID()
                     };
                     this._rootDiv.classList.add("loading");
-                    this._rulesPanel.clear("analyse in progress...");
-                    this.sendCommandToClient('startNewAnalyse', { id: this._currentAnalyse.id });
+                    this._rulesPanel.clear("analyze in progress...");
+                    this.sendCommandToClient('startNewAnalyze', { id: this._currentAnalyze.id, analyzeCssFallback: this.analyzeCssFallback });
                 });
-                
+
                 this._cancelCheckButton.addEventListener("click", (evt) => {
                     this._startCheckButton.disabled = false;
                     this._cancelCheckButton.disabled = true;
-                    this._currentAnalyse.processing = false;
-                    this._currentAnalyse.canceled = true;
+                    this._currentAnalyze.processing = false;
+                    this._currentAnalyze.canceled = true;
                     this._rootDiv.classList.remove("loading");
                     this._rulesPanel.clear("retry by clicking on start button");
                 });
@@ -65,86 +67,106 @@ module VORLON {
         }
 
         checkLoadingState() {
-            if (!this._currentAnalyse || this._currentAnalyse.ended || this._currentAnalyse.canceled) {
+            if (this._currentAnalyze && this._currentAnalyze.pendingLoad <= 0) {
+                this.trace("resource load completed");
+                this._currentAnalyze.processing = false;
+            }
+                
+            if (!this._currentAnalyze || this._currentAnalyze.ended || this._currentAnalyze.canceled) {
                 return;
             }
 
-            if (this._currentAnalyse.processing) {
+            if (this._currentAnalyze.processing) {
 
             } else {
-                this.endAnalyse(this._currentAnalyse);
+                this.endAnalyze(this._currentAnalyze);
                 this._rootDiv.classList.remove("loading");
-                this._currentAnalyse.ended = true;
+                this._currentAnalyze.ended = true;
                 this._ruleDetailPanel.setMessage("click on a rule in the result panel to show details");
-                this._rulesPanel.setRules(this._currentAnalyse);
+                this._rulesPanel.setRules(this._currentAnalyze);
                 this._startCheckButton.disabled = false;
                 this._cancelCheckButton.disabled = true;
             }
         }
 
-        receiveHtmlContent(data: { id: string, html: string, doctype: any, url:any, browserDetection : any }) {
-            if (!this._currentAnalyse) {
-                this._currentAnalyse = { processing: true };
-            }
-            
-            if (!this._currentAnalyse.files) {
-                this._currentAnalyse.files = {};
+        receiveHtmlContent(data: { id: string, html: string, doctype: any, url: any, browserDetection: any, stylesheetErrors: any }) {
+            if (!this._currentAnalyze) {
+                this._currentAnalyze = { processing: true };
             }
 
-            this._currentAnalyse.html = data.html;
-            this._currentAnalyse.doctype = data.doctype;
-            this._currentAnalyse.location = data.url;
-            this._currentAnalyse.browserDetection  = data.browserDetection;
-            
-            var fragment: HTMLDocument = document.implementation.createHTMLDocument("analyse");
+            if (!this._currentAnalyze.files) {
+                this._currentAnalyze.files = {};
+            }
+
+            this._currentAnalyze.lastActivity = new Date();
+
+            this._currentAnalyze.html = data.html;
+            this._currentAnalyze.doctype = data.doctype;
+            this._currentAnalyze.location = data.url;
+            this._currentAnalyze.browserDetection = data.browserDetection;
+
+            var fragment: HTMLDocument = document.implementation.createHTMLDocument("analyze");
             fragment.documentElement.innerHTML = data.html;
-            this._currentAnalyse.pendingLoad = 0;
+            this._currentAnalyze.pendingLoad = 0;
 
-            this._currentAnalyse.files.scripts = {};
+            this._currentAnalyze.files.scripts = {};
             var scripts = fragment.querySelectorAll("script");
+            var nbScripts = scripts.length;
             for (var i = 0; i < scripts.length; i++) {
                 var s = scripts[i];
                 var src = s.attributes.getNamedItem("src");
                 if (src && src.value) {
                     var isVorlon = src.value.indexOf('vorlon.js') > 0 || src.value.indexOf('vorlon.min.js') > 0 || src.value.indexOf('vorlon.max.js') > 0;
                     if (!isVorlon) {
-                        this._currentAnalyse.files.scripts[src.value] = { loaded: false, content: null };
-                        this.sendCommandToClient('fetchDocument', { url: src.value, id: this._currentAnalyse.id });
-                        this._currentAnalyse.pendingLoad++;
+                        this._currentAnalyze.files.scripts[src.value] = { loaded: false, content: null };
+                        this.sendCommandToClient('fetchDocument', { url: src.value, id: this._currentAnalyze.id, type: "script" });
+                        this._currentAnalyze.pendingLoad++;
+                        this.trace("request file " + src.value + " " + this._currentAnalyze.pendingLoad);
                     }
                 }
             }
 
-            this._currentAnalyse.files.stylesheets = {};
+            this._currentAnalyze.files.stylesheets = {};
             var stylesheets = fragment.querySelectorAll("link[rel=stylesheet]");
+            var nbStylesheets = stylesheets.length;
             for (var i = 0; i < stylesheets.length; i++) {
                 var s = stylesheets[i];
                 var href = s.attributes.getNamedItem("href");
                 if (href) {
-                    this._currentAnalyse.files.stylesheets[href.value] = { loaded: false, content: null };
-                    this.sendCommandToClient('fetchDocument', { url: href.value, id: this._currentAnalyse.id });
-                    this._currentAnalyse.pendingLoad++;
+                    this._currentAnalyze.files.stylesheets[href.value] = { loaded: false, content: null };
+                    this.sendCommandToClient('fetchDocument', { url: href.value, id: this._currentAnalyze.id, type: "stylesheet", analyzeCssFallback: this.analyzeCssFallback });
+                    this._currentAnalyze.pendingLoad++;
+                    this.trace("request file " + href.value + " " + this._currentAnalyze.pendingLoad);
                 }
             }
-            
-            this._currentAnalyse.results = {};            
-            this.prepareAnalyse(this._currentAnalyse) 
-            this.analyseDOM(fragment, data.html, this._currentAnalyse);
+            if (!this._currentAnalyze.fallBackErrorList)
+                this._currentAnalyze.fallBackErrorList = [];
+
+            if (data.stylesheetErrors)
+                this._currentAnalyze.fallBackErrorList.push(data.stylesheetErrors);
+            this._currentAnalyze.results = {};
+            this.prepareAnalyze(this._currentAnalyze)
+            this.analyzeDOM(fragment, data.html, this._currentAnalyze);
+
         }
 
-        receiveDocumentContent(data: { id: string, url: string, content: string, error?: string, encoding?: string, contentLength?: string, status: number }) {
+        receiveDocumentContent(data: { id: string, url: string, content: string, error?: string, encoding?: string, contentLength?: string, status: number, stylesheetErrors: any }) {
             var item = null;
             var itemContainer = null;
-            for (var n in this._currentAnalyse.files){
-                var container = this._currentAnalyse.files[n];
-                if (container[data.url]){
+
+            this._currentAnalyze.lastActivity = new Date();
+
+
+            for (var n in this._currentAnalyze.files) {
+                var container = this._currentAnalyze.files[n];
+                if (container[data.url]) {
                     item = container[data.url];
                     itemContainer = n;
                 }
-            }            
+            }
 
             if (item) {
-                this._currentAnalyse.pendingLoad--;
+                this._currentAnalyze.pendingLoad--;
                 item.loaded = true;
                 item.encoding = data.encoding;
                 item.content = data.content;
@@ -156,24 +178,33 @@ module VORLON {
                     item.loaded = false;
                 }
 
-                if (this._currentAnalyse.pendingLoad == 0) {
-                    this._currentAnalyse.processing = false;
-                }
+                
             }
-            
+
             if (itemContainer === "stylesheets") {
-                this.analyseCssDocument(data.url, data.content, this._currentAnalyse);
+                if (this.analyzeCssFallback) {
+                    if (!this._currentAnalyze.fallBackErrorList)
+                        this._currentAnalyze.fallBackErrorList = [];
+                    if (data.stylesheetErrors)
+                        this._currentAnalyze.fallBackErrorList.push(data.stylesheetErrors);
+
+                }
+                else {
+                    this._currentAnalyze.fallBackErrorList = null;
+                }
+                this.analyzeCssDocument(data.url, data.content, this._currentAnalyze);
             }
-            
+
             if (itemContainer === "scripts") {
-                this.analyseJsDocument(data.url, data.content, this._currentAnalyse);
+                this.analyzeJsDocument(data.url, data.content, this._currentAnalyze);
             }
+            this.trace("receive content " + data.url + " " + this._currentAnalyze.pendingLoad);
         }
 
-        analyseDOM(document: HTMLDocument, htmlContent: string, analyse) {
+        analyzeDOM(document: HTMLDocument, htmlContent: string, analyze) {
             var generalRules = [];
             var commonRules = [];
-            
+
             var rules = {
                 domRulesIndex: <any>{},
                 domRulesForAllNodes: []
@@ -183,9 +214,9 @@ module VORLON {
             for (var n in VORLON.WebStandards.Rules.DOM) {
                 var rule = <IDOMRule>VORLON.WebStandards.Rules.DOM[n];
                 if (rule) {
-                    var rulecheck = this.initialiseRuleSummary(rule, analyse);
+                    var rulecheck = this.initialiseRuleSummary(rule, analyze);
                     if (rule.prepare) {
-                        rule.prepare(rulecheck, analyse, htmlContent);
+                        rule.prepare(rulecheck, analyze, htmlContent);
                     }
 
                     if (rule.generalRule) {
@@ -193,7 +224,7 @@ module VORLON {
                     } else {
                         commonRules.push(rule);
                         if (rule.nodeTypes.length) {
-                            rule.nodeTypes.forEach(function(n) {
+                            rule.nodeTypes.forEach(function (n) {
                                 n = n.toUpperCase();
                                 if (!rules.domRulesIndex[n])
                                     rules.domRulesIndex[n] = [];
@@ -207,16 +238,16 @@ module VORLON {
                 }
             }
 
-            this.analyseDOMNode(document, rules, analyse, htmlContent);
+            this.analyzeDOMNode(document, rules, analyze, htmlContent);
 
             generalRules.forEach((rule) => {
-                this.applyDOMNodeRule(document, rule, analyse, htmlContent);
+                this.applyDOMNodeRule(document, rule, analyze, htmlContent);
             });
         }
 
-        analyseDOMNode(node: Node, rules: any, analyse, htmlContent: string) {
+        analyzeDOMNode(node: Node, rules: any, analyze, htmlContent: string) {
             if (node.nodeName === "STYLE") {
-                this.analyseCssDocument("inline", (<HTMLElement>node).innerHTML, analyse);
+                this.analyzeCssDocument("inline", (<HTMLElement>node).innerHTML, analyze);
             }
 
             if (node.nodeName === "SCRIPT") {
@@ -225,34 +256,34 @@ module VORLON {
                 var hasContent = domnode.innerHTML.trim().length > 0;
 
                 if (!scriptType || scriptType == "text/javascript" && hasContent) {
-                    this.analyseJsDocument("inline", domnode.innerHTML, analyse);
+                    this.analyzeJsDocument("inline", domnode.innerHTML, analyze);
                 }
             }
 
             var specificRules = rules.domRulesIndex[node.nodeName.toUpperCase()];
             if (specificRules && specificRules.length) {
                 specificRules.forEach((r) => {
-                    this.applyDOMNodeRule(node, r, analyse, htmlContent);
+                    this.applyDOMNodeRule(node, r, analyze, htmlContent);
                 });
-            } 
+            }
 
             if (rules.domRulesForAllNodes && rules.domRulesForAllNodes.length) {
                 rules.domRulesForAllNodes.forEach((r) => {
-                    this.applyDOMNodeRule(node, r, analyse, htmlContent);
+                    this.applyDOMNodeRule(node, r, analyze, htmlContent);
                 });
             }
 
             for (var i = 0, l = node.childNodes.length; i < l; i++) {
-                this.analyseDOMNode(node.childNodes[i], rules, analyse, htmlContent);
+                this.analyzeDOMNode(node.childNodes[i], rules, analyze, htmlContent);
             }
         }
 
-        initialiseRuleSummary(rule, analyse) {
+        initialiseRuleSummary(rule, analyze) {
             var tokens = rule.id.split('.');
-            var current = analyse.results;
+            var current = analyze.results;
             var id = "";
             current.rules = current.rules || {};
-            tokens.forEach(function(t) {
+            tokens.forEach(function (t) {
                 id = (id.length > 0) ? "." + t : t;
 
                 if (!current.rules) {
@@ -274,93 +305,105 @@ module VORLON {
             return current;
         }
 
-        applyDOMNodeRule(node: Node, rule: IDOMRule, analyse, htmlContent: string) {
-            var current = this.initialiseRuleSummary(rule, analyse);
-            rule.check(node, current, analyse, htmlContent);
+        applyDOMNodeRule(node: Node, rule: IDOMRule, analyze, htmlContent: string) {
+            var current = this.initialiseRuleSummary(rule, analyze);
+            rule.check(node, current, analyze, htmlContent);
         }
 
-        analyseCssDocument(url, content, analyse) {
+        analyzeCssDocument(url, content, analyze) {
             var parser = new cssjs();
             var parsed = parser.parseCSS(content);
-            console.log("processing css " + url);
+            this.trace("processing css " + url);
                         
             //we index rules based on target node types
             for (var n in VORLON.WebStandards.Rules.CSS) {
                 var rule = <ICSSRule>VORLON.WebStandards.Rules.CSS[n];
                 if (rule) {
-                    var current = this.initialiseRuleSummary(rule, analyse);
-                    rule.check(url, parsed, current, analyse);
+                    var current = this.initialiseRuleSummary(rule, analyze);
+                    rule.check(url, parsed, current, analyze);
                 }
             }
         }
 
-        analyseJsDocument(url, content, analyse) {
-            console.log("processing script " + url);
+        analyzeFiles(analyze) {
+            for (var n in VORLON.WebStandards.Rules.Files) {
+                var rule = <IFileRule>VORLON.WebStandards.Rules.Files[n];
+                if (rule) {
+                    var current = this.initialiseRuleSummary(rule, analyze);
+                    rule.check(current, analyze);
+                }
+            }
+        }
+
+        analyzeJsDocument(url, content, analyze) {
+            this.trace("processing script " + url);
             for (var n in VORLON.WebStandards.Rules.JavaScript) {
                 var rule = <IScriptRule>VORLON.WebStandards.Rules.JavaScript[n];
                 if (rule) {
-                    var current = this.initialiseRuleSummary(rule, analyse);
-                    rule.check(url, content, current, analyse);
+                    var current = this.initialiseRuleSummary(rule, analyze);
+                    rule.check(url, content, current, analyze);
                 }
             }
         }
 
-        prepareAnalyse(analyse) {
+        prepareAnalyze(analyze) {
             for (var n in VORLON.WebStandards.Rules.CSS) {
                 var cssrule = <ICSSRule>VORLON.WebStandards.Rules.CSS[n];
                 if (cssrule) {
-                    var current = this.initialiseRuleSummary(cssrule, analyse);
+                    var current = this.initialiseRuleSummary(cssrule, analyze);
                     if (cssrule.prepare)
-                        cssrule.prepare(current, analyse);
+                        cssrule.prepare(current, analyze);
                 }
             }
 
             for (var n in VORLON.WebStandards.Rules.JavaScript) {
                 var scriptrule = <IScriptRule>VORLON.WebStandards.Rules.JavaScript[n];
                 if (scriptrule) {
-                    var current = this.initialiseRuleSummary(scriptrule, analyse);
+                    var current = this.initialiseRuleSummary(scriptrule, analyze);
                     if (scriptrule.prepare)
-                        scriptrule.prepare(current, analyse);
+                        scriptrule.prepare(current, analyze);
                 }
             }
         }
-        
-        endAnalyse(analyse) {
+
+        endAnalyze(analyze) {
             for (var n in VORLON.WebStandards.Rules.DOM) {
-                var rule = <IDOMRule>VORLON.WebStandards.Rules.DOM[n];                
+                var rule = <IDOMRule>VORLON.WebStandards.Rules.DOM[n];
                 if (rule && !rule.generalRule && rule.endcheck) {
-                    var current = this.initialiseRuleSummary(rule, analyse);
-                    rule.endcheck(current, analyse, this._currentAnalyse.html);
+                    var current = this.initialiseRuleSummary(rule, analyze);
+                    rule.endcheck(current, analyze, this._currentAnalyze.html);
                 }
-            }   
-            
+            }
+
             for (var n in VORLON.WebStandards.Rules.CSS) {
                 var cssrule = <ICSSRule>VORLON.WebStandards.Rules.CSS[n];
                 if (cssrule) {
-                    var current = this.initialiseRuleSummary(cssrule, analyse);
+                    var current = this.initialiseRuleSummary(cssrule, analyze);
                     if (cssrule.endcheck)
-                        cssrule.endcheck(current, analyse);
+                        cssrule.endcheck(current, analyze);
                 }
             }
 
             for (var n in VORLON.WebStandards.Rules.JavaScript) {
                 var scriptrule = <IScriptRule>VORLON.WebStandards.Rules.JavaScript[n];
                 if (scriptrule) {
-                    var current = this.initialiseRuleSummary(scriptrule, analyse);
+                    var current = this.initialiseRuleSummary(scriptrule, analyze);
                     if (scriptrule.endcheck)
-                        scriptrule.endcheck(current, analyse);
+                        scriptrule.endcheck(current, analyze);
                 }
             }
+
+            this.analyzeFiles(this._currentAnalyze);
         }
     }
 
     WebStandardsDashboard.prototype.DashboardCommands = {
-        htmlContent: function(data: any) {
+        htmlContent: function (data: any) {
             var plugin = <WebStandardsDashboard>this;
             plugin.receiveHtmlContent(data);
         },
 
-        documentContent: function(data: any) {
+        documentContent: function (data: any) {
             var plugin = <WebStandardsDashboard>this;
             plugin.receiveDocumentContent(data);
         }
@@ -373,8 +416,10 @@ module VORLON {
         element: HTMLElement;
         detailpanel: WebStandardsRuleDetailPanel;
         selectedRuleElt: HTMLElement;
-
-        constructor(element: Element, detailpanel: WebStandardsRuleDetailPanel) {
+        plugin:  WebStandardsDashboard;
+        
+        constructor(plugin:  WebStandardsDashboard, element: Element, detailpanel: WebStandardsRuleDetailPanel) {
+            this.plugin = plugin;
             this.element = <HTMLElement>element;
             this.element.style.display = "none";
             this.detailpanel = detailpanel;
@@ -385,12 +430,12 @@ module VORLON {
             this.detailpanel.clear(msg);
         }
 
-        setRules(analyse) {
-            console.log("RENDER ANALYSE");
-            console.log(analyse);
+        setRules(analyze) {
+            this.plugin.trace("RENDER ANALYZE");
+            this.plugin.trace(analyze);
             this.element.style.display = "";
             this.element.innerHTML = "";
-            this.renderRules(analyse.results.rules, this.element, 1);
+            this.renderRules(analyze.results.rules, this.element, 1);
         }
 
         renderRules(rules, parent: HTMLElement, level: number) {
@@ -408,7 +453,7 @@ module VORLON {
                 //}  
             }
 
-            items.sort(function(a, b) {
+            items.sort(function (a, b) {
                 return a.title.localeCompare(b.title);
             })
 
@@ -454,20 +499,22 @@ module VORLON {
 
     class WebStandardsRuleDetailPanel {
         element: HTMLElement;
-
-        constructor(element: Element) {
+        plugin:  WebStandardsDashboard;
+        
+        constructor(plugin:  WebStandardsDashboard, element: Element) {
             this.element = <HTMLElement>element;
+            this.plugin = plugin;
         }
 
         setRule(rule) {
-            this.element.innerHTML = "";            
+            this.element.innerHTML = "";
 
             var fluent = FluentDOM.forElement(this.element);
             fluent.append("DIV", "ruledetailpanel-content", (content) => {
                 content.append("DIV", "item", (item) => {
                     if (rule.type)
                         item.addClass(rule.type);
-                
+
                     item.append("H1", "title", (title) => {
                         title.createChild("SPAN", "state fa " + (rule.failed ? "fa-close" : "fa-check"));
                         title.createChild("SPAN", "text").html(rule.title);
@@ -495,7 +542,10 @@ module VORLON {
                 if (item.type) {
                     itemelt.addClass(item.type);
                 }
-                if (item.title) {
+                if (item.title && item.alert) {
+                    itemelt.createChild("SPAN", "state fa " + (item.failed ? "fa-close" : "fa-check")).html(item.title);
+                }
+                else if (item.title) {
                     itemelt.createChild("DIV", "title").html(item.title);
                 }
                 if (item.message) {

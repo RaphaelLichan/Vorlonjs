@@ -8,7 +8,7 @@
         private _globalloadactive = false;
         private _overlay: HTMLElement;
         private _observerMutationObserver;
-
+        private _overlayInspect: HTMLElement;
         constructor() {
             super("domExplorer");
             this._id = "DOM";
@@ -92,7 +92,7 @@
                 attributes: node.attributes ? Array.prototype.map.call(node.attributes, (attr) => {
                     return [attr.name, attr.value];
                 }) : [],
-                styles: DOMExplorerClient.GetAppliedStyles(node),
+                //styles: DOMExplorerClient.GetAppliedStyles(node),
                 children: [],
                 isEmpty: false,
                 rootHTML: null,
@@ -113,7 +113,7 @@
             }
             else {
                 if (!node.__vorlon) {
-                    node.__vorlon = <any> {};
+                    node.__vorlon = <any>{};
                 }
                 node.__vorlon.internalId = packagedNode.internalId;
             }
@@ -130,8 +130,8 @@
                 var node = <HTMLElement>root.childNodes[index];
                 var packagedNode = this._packageNode(node);
                 var b = false;
-                
-                if (node.childNodes && node.childNodes.length > 1 || (node && node.nodeName && (node.nodeName.toLowerCase() === "script"|| node.nodeName.toLowerCase() === "style"))) {
+
+                if (node.childNodes && node.childNodes.length > 1 || (node && node.nodeName && (node.nodeName.toLowerCase() === "script" || node.nodeName.toLowerCase() === "style"))) {
                     packagedNode.hasChildNodes = true;
                 }
                 else if (withChildsNodes || node.childNodes.length == 1) {
@@ -264,10 +264,11 @@
             var p = element.getBoundingClientRect();
             var w = element.offsetWidth;
             var h = element.offsetHeight;
-            return { x: p.top, y: p.left, width: w, height: h };
+            //console.log("check offset for highlight " + p.top + "," + p.left);
+            return { x: p.top - element.scrollTop, y: p.left - element.scrollLeft, width: w, height: h };
         }
 
-        public setClientSelectedElement(elementId: string) {
+        public setClientHighlightedElement(elementId: string) {
             var element = this._getElementByInternalId(elementId, document.documentElement);
 
             if (!element) {
@@ -276,10 +277,10 @@
             if (!this._overlay) {
                 this._overlay = document.createElement("div");
                 this._overlay.id = "vorlonOverlay";
-                this._overlay.style.position = "absolute";
+                this._overlay.style.position = "fixed";
                 this._overlay.style.backgroundColor = "rgba(255,255,0,0.4)";
                 this._overlay.style.pointerEvents = "none";
-                (<any>  this._overlay).__vorlon = { ignore: true };
+                (<any>this._overlay).__vorlon = { ignore: true };
                 document.body.appendChild(this._overlay);
             }
             this._overlay.style.display = "block";
@@ -290,7 +291,7 @@
             this._overlay.style.height = position.height + "px";
         }
 
-        public unselectClientElement(internalId?: string) {
+        public unhighlightClientElement(internalId?: string) {
             if (this._overlay)
                 this._overlay.style.display = "none";
         }
@@ -315,27 +316,28 @@
 
         inspect(): void {
             if (document.elementFromPoint) {
+                if (this._overlayInspect)
+                    return;
                 this.trace("INSPECT");
-                var overlay = document.createElement("DIV");
-                overlay.style.position = "fixed";
-                overlay.style.left = "0";
-                overlay.style.right = "0";
-                overlay.style.top = "0";
-                overlay.style.bottom = "0";
-                overlay.style.touchAction = "manipulation";
-                overlay.style.backgroundColor = "rgba(255,0,0,0.2)";
-                document.body.appendChild(overlay);
+                this._overlayInspect = document.createElement("DIV");
+                this._overlayInspect.__vorlon = { ignore: true };
+                this._overlayInspect.style.position = "fixed";
+                this._overlayInspect.style.left = "0";
+                this._overlayInspect.style.right = "0";
+                this._overlayInspect.style.top = "0";
+                this._overlayInspect.style.bottom = "0";
+                this._overlayInspect.style.zIndex = "5000000000000000";
+                this._overlayInspect.style.touchAction = "manipulation";
+                this._overlayInspect.style.backgroundColor = "rgba(255,0,0,0.3)";
+                document.body.appendChild(this._overlayInspect);
                 var event = "mousedown";
-                if (overlay.onpointerdown !== undefined) {
+                if (this._overlayInspect.onpointerdown !== undefined) {
                     event = "pointerdown";
                 }
-                else if ((<any>overlay).ontouchstart !== undefined) {
-                    event = "touchstart";
-                }
-                overlay.addEventListener(event, (arg) => {
+                this._overlayInspect.addEventListener(event, (arg) => {
                     var evt = <any>arg;
                     this.trace("tracking element at " + evt.clientX + "/" + evt.clientY);
-                    overlay.parentElement.removeChild(overlay);
+                    this._overlayInspect.parentElement.removeChild(this._overlayInspect);
                     var el = <HTMLElement>document.elementFromPoint(evt.clientX, evt.clientY);
                     if (el) {
                         this.trace("element found");
@@ -343,6 +345,7 @@
                     } else {
                         this.trace("element not found");
                     }
+                    this._overlayInspect = null;
                 });
             } else {
                 //TODO : send message back to dashboard and disable button
@@ -426,7 +429,7 @@
                 if (attributeName)
                     element.setAttribute(attributeName, attributeValue);
                 if (attributeName && attributeName.indexOf('on') === 0) {
-                    element[attributeName] = function () {
+                    element[attributeName] = function() {
                         try { eval(attributeValue); }
                         catch (e) { console.error(e); }
                     };
@@ -447,14 +450,17 @@
             var element = this._getElementByInternalId(internaID, document.documentElement);
             element.innerHTML = value;
         }
+
+        public getNodeStyle(internalID: string) {
+            var element = this._getElementByInternalId(internalID, document.documentElement);
+            if (element) {
+                var styles = DOMExplorerClient.GetAppliedStyles(element);
+                this.sendCommandToDashboard('nodeStyle', { internalID: internalID, styles: styles });
+            }
+        }
     }
 
     DOMExplorerClient.prototype.ClientCommands = {
-        select(data: any) {
-            var plugin = <DOMExplorerClient>this;
-            plugin.unselectClientElement();
-            plugin.setClientSelectedElement(data.order);
-        },
         getMutationObeserverAvailability() {
             var plugin = <DOMExplorerClient>this;
             plugin.getMutationObeserverAvailability();
@@ -490,14 +496,38 @@
             plugin.setElementValue(data.order, data.value);
         },
 
+        select(data: any) {
+            var plugin = <DOMExplorerClient>this;
+            plugin.unhighlightClientElement();
+            plugin.setClientHighlightedElement(data.order);
+            plugin.getNodeStyle(data.order);
+        },
+
         unselect(data: any) {
             var plugin = <DOMExplorerClient>this;
-            plugin.unselectClientElement(data.order);
+            plugin.unhighlightClientElement(data.order);
+        },
+
+        highlight(data: any) {
+            var plugin = <DOMExplorerClient>this;
+            plugin.unhighlightClientElement();
+            plugin.setClientHighlightedElement(data.order);
+        },
+
+        unhighlight(data: any) {
+            var plugin = <DOMExplorerClient>this;
+            plugin.unhighlightClientElement(data.order);
         },
 
         refreshNode(data: any) {
             var plugin = <DOMExplorerClient>this;
             plugin.refreshbyId(data.order);
+        },
+
+        getNodeStyles(data: any) {
+            var plugin = <DOMExplorerClient>this;
+            console.log("get node style");
+            //plugin.refreshbyId(data.order);
         },
 
         refresh() {

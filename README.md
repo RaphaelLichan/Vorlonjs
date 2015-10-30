@@ -17,6 +17,8 @@ $ vorlon
 With the server is running, open http://localhost:1337 in your browser to see the Vorlon.JS dashboard.
 ```
 
+**You may notice errors from Python, node-gyp and socket.io. This is a known issue already reported to socket.io team. This is not a blocking issue though as socket.io still works well even with this error :)**
+
 ### Custom port
 
 [Linux]
@@ -47,6 +49,13 @@ If you want to run the server with SSL support proceed as follows:
 4. In JSON file set to true 
 5. If you want to replace our localhost certificate should only change the path of the files with the private key and certificate
 6. Exit and save JSON file
+
+## SSL Support on Azure
+1. Navigate to the installation folder
+2. Modify JSON file for activation SSLAzure support
+3. In JSON file set to true
+4. Exit and save JSON file
+5. Navigate with https protole on your Azure WebSite
 
 ## Custom log file
 By default Vorlon.JS application logs with debug level and files are stored in the installation folder.

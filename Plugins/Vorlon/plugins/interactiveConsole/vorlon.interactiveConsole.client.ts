@@ -149,6 +149,10 @@
         }
 
         private batchSend(items: any[]) {
+            if (this._pendingEntriesTimeout) {
+                clearTimeout(this._pendingEntriesTimeout);
+                this._pendingEntriesTimeout = null;
+            }
             var batch = [];
             for (var i = 0, l = items.length; i < l; i++) {
                 if (batch.length < this._maxBatchSize) {
@@ -162,6 +166,9 @@
         }
 
         public startClientSide(): void {
+            this._cache = [];
+            this._pendingEntries = [];
+            
             // Overrides clear, log, error and warn
             this._hooks.clear = Tools.Hook(window.console, "clear",(): void => {
                 this.clearClientConsole();
@@ -259,11 +266,10 @@
             }
         }
 
-        public refresh(): void {
-            this.sendCommandToDashboard("clear");
-
+        public refresh(): void {           
             //delay sending cache to dashboard to let other plugins load...
             setTimeout(() => {
+                this.sendCommandToDashboard("clear");
                 this.batchSend(this._cache);
             }, 300);
         }
