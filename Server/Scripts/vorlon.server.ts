@@ -9,24 +9,26 @@ var fakeredis = require("fakeredis");
 //Vorlon
 import iwsc = require("./vorlon.IWebServerComponent");
 import tools = require("./vorlon.tools");
-import vorloncontext = require("../config/vorlon.servercontext"); 
+import vorloncontext = require("../config/vorlon.servercontext");
 
 export module VORLON {
     export class Server implements iwsc.VORLON.IWebServerComponent {
-        private _sessions : vorloncontext.VORLON.SessionManager;
+        private _sessions: vorloncontext.VORLON.SessionManager;
         public dashboards = new Array<SocketIO.Socket>();
 
         private _io: any;
         private _redisApi: any;
         private _log: vorloncontext.VORLON.ILogger;
         private httpConfig: vorloncontext.VORLON.IHttpConfig;
+        private pluginsConfig: vorloncontext.VORLON.IPluginsProvider;
         private baseURLConfig: vorloncontext.VORLON.IBaseURLConfig;
         private redisConfig: vorloncontext.VORLON.IRedisConfig;
 
-        constructor(context : vorloncontext.VORLON.IVorlonServerContext) {
+        constructor(context: vorloncontext.VORLON.IVorlonServerContext) {
             this.baseURLConfig = context.baseURLConfig;
             this.httpConfig = context.httpConfig;
             this.redisConfig = context.redisConfig;
+            this.pluginsConfig = context.plugins;
             this._log = context.logger;
             this._sessions = context.sessions;
                                   
@@ -36,18 +38,18 @@ export module VORLON {
             }
             else {
                 this._redisApi = redis.createClient(this.redisConfig._redisPort, this.redisConfig._redisMachine);
-                this._redisApi.auth(this.redisConfig._redisPassword,(err) => {
+                this._redisApi.auth(this.redisConfig._redisPassword, (err) => {
                     if (err) { throw err; }
                 });
-            }            
+            }
         }
 
         public addRoutes(app: express.Express, passport: any): void {
-            app.get(this.baseURLConfig.baseURL + "/api/createsession",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/api/createsession", (req: any, res: any) => {
                 this.json(res, this.guid());
             });
 
-            app.get(this.baseURLConfig.baseURL + "/api/reset/:idSession",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/api/reset/:idSession", (req: any, res: any) => {
                 var session = this._sessions.get(req.params.idSession);
                 if (session && session.connectedClients) {
                     for (var client in session.connectedClients) {
@@ -55,12 +57,12 @@ export module VORLON {
                     }
                 }
                 this._sessions.remove(req.params.idSession);
-                
+
                 res.writeHead(200, {});
                 res.end();
             });
 
-            app.get(this.baseURLConfig.baseURL + "/api/getclients/:idSession",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/api/getclients/:idSession", (req: any, res: any) => {
                 var session = this._sessions.get(req.params.idSession);
                 var clients = new Array();
                 if (session != null) {
@@ -73,6 +75,7 @@ export module VORLON {
                             nbClients++;
                         }
                     }
+                    this._sessions.update(req.params.idSession, session);
                     this._log.debug("API : GetClients nb client " + nbClients + " in session " + req.params.idSession, { type: "API", session: req.params.idSession });
                 }
                 else {
@@ -85,14 +88,14 @@ export module VORLON {
                 this.json(res, clients);
             });
 
-            app.get(this.baseURLConfig.baseURL + "/api/range/:idsession/:idplugin/:from/:to",(req: any, res: any) => {
-                this._redisApi.lrange(req.params.idsession + req.params.idplugin, req.params.from, req.params.to,(err: any, reply: any) => {
+            app.get(this.baseURLConfig.baseURL + "/api/range/:idsession/:idplugin/:from/:to", (req: any, res: any) => {
+                this._redisApi.lrange(req.params.idsession + req.params.idplugin, req.params.from, req.params.to, (err: any, reply: any) => {
                     this._log.debug("API : Get Range data from : " + req.params.from + " to " + req.params.to + " = " + reply, { type: "API", session: req.params.idsession });
                     this.json(res, reply);
                 });
             });
 
-            app.post(this.baseURLConfig.baseURL + "/api/push",(req: any, res: any) => {
+            app.post(this.baseURLConfig.baseURL + "/api/push", (req: any, res: any) => {
                 var receiveMessage = req.body;
                 this._log.debug("API : Receve data to log : " + JSON.stringify(req.body), { type: "API", session: receiveMessage._idsession });
                 this._redisApi.rpush([receiveMessage._idsession + receiveMessage.id, receiveMessage.message], err => {
@@ -105,57 +108,46 @@ export module VORLON {
                 this.json(res, {});
             });
 
-            app.get(this.baseURLConfig.baseURL + "/vorlon.max.js/",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/vorlon.max.js/", (req: any, res: any) => {
                 res.redirect("/vorlon.max.js/default");
             });
 
-            app.get(this.baseURLConfig.baseURL + "/vorlon.max.js/:idsession",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/vorlon.max.js/:idsession", (req: any, res: any) => {
                 this._sendVorlonJSFile(false, req, res);
             });
 
-            app.get(this.baseURLConfig.baseURL + "/vorlon.js",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/vorlon.js", (req: any, res: any) => {
                 res.redirect(this.baseURLConfig.baseURL + "/vorlon.js/default");
             });
 
-            app.get(this.baseURLConfig.baseURL + "/vorlon.js/:idsession",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/vorlon.js/:idsession", (req: any, res: any) => {
                 this._sendVorlonJSFile(true, req, res);
             });
 
-            app.get(this.baseURLConfig.baseURL + "/vorlon.max.autostartdisabled.js",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/vorlon.max.autostartdisabled.js", (req: any, res: any) => {
                 this._sendVorlonJSFile(false, req, res, false);
             });
 
-            app.get(this.baseURLConfig.baseURL + "/vorlon.autostartdisabled.js",(req: any, res: any) => {
+            app.get(this.baseURLConfig.baseURL + "/vorlon.autostartdisabled.js", (req: any, res: any) => {
                 this._sendVorlonJSFile(true, req, res, false);
             });
-            
-            app.get(this.baseURLConfig.baseURL + "/config.json",(req: any, res: any) => {
+
+            app.get(this.baseURLConfig.baseURL + "/getplugins/:idsession", (req: any, res: any) => {
                 this._sendConfigJson(req, res);
-            });           
+            });
         }
-        
+
         private _sendConfigJson(req: any, res: any) {
-           
-            fs.readFile(path.join(__dirname, "../config.json"), "utf8",(err, catalogdata) => {
+
+            var sessionid = req.params.idsession || "default";
+            this.pluginsConfig.getPluginsFor(sessionid, (err, catalog) => {
                 if (err) {
                     this._log.error("ROUTE : Error reading config.json file");
                     return;
                 }
-                
-                var catalog = JSON.parse(catalogdata.replace(/^\uFEFF/, ''));
-                
-                //remove auth data to not send username and password outside ;)
-                if(catalog.activateAuth){
-                    delete catalog.activateAuth;
-                }
-                if(catalog.username){
-                    delete catalog.username;
-                }
-                if(catalog.password){
-                    delete catalog.password;
-                }
-                
-                catalogdata = JSON.stringify(catalog);
+
+
+                var catalogdata = JSON.stringify(catalog);
                 res.header('Content-Type', 'application/json');
                 res.send(catalogdata);
             });
@@ -164,19 +156,17 @@ export module VORLON {
         private _sendVorlonJSFile(ismin: boolean, req: any, res: any, autostart: boolean = true) {
             //Read Socket.io file
             var javascriptFile: string;
-
-            fs.readFile(path.join(__dirname, "../config.json"), "utf8",(err, catalogdata) => {
+            var sessionid = req.params.idsession || "default";
+            this.pluginsConfig.getPluginsFor(sessionid, (err, catalog) => {
                 if (err) {
-                    this._log.error("ROUTE : Error reading config.json");
+                    this._log.error("ROUTE : Error getting plugins");
                     return;
                 }
 
-                var configstring = catalogdata.toString().replace(/^\uFEFF/, '');
                 var baseUrl = this.baseURLConfig.baseURL;
-                var catalog = JSON.parse(configstring);
                 var vorlonpluginfiles: string = "";
                 var javascriptFile: string = "";
-                                
+
                 javascriptFile += 'var vorlonBaseURL="' + baseUrl + '";\n';
 
                 //read the socket.io file if needed
@@ -193,12 +183,18 @@ export module VORLON {
 
                 for (var pluginid = 0; pluginid < catalog.plugins.length; pluginid++) {
                     var plugin = catalog.plugins[pluginid];
-                    if (plugin && plugin.enabled){
+                    if (plugin && plugin.enabled) {
                         //Read Vorlon.js file
                         if (ismin) {
+                            if (fs.existsSync(path.join(__dirname, "../public/vorlon/plugins/" + plugin.foldername + "/vorlon." + plugin.foldername + ".interfaces.min.js"))) {
+                                vorlonpluginfiles += fs.readFileSync(path.join(__dirname, "../public/vorlon/plugins/" + plugin.foldername + "/vorlon." + plugin.foldername + ".interfaces.min.js"));
+                            }                            
                             vorlonpluginfiles += fs.readFileSync(path.join(__dirname, "../public/vorlon/plugins/" + plugin.foldername + "/vorlon." + plugin.foldername + ".client.min.js"));
                         }
                         else {
+                            if(fs.existsSync(path.join(__dirname, "../public/vorlon/plugins/" + plugin.foldername + "/vorlon." + plugin.foldername + ".interfaces.min.js"))){
+                                vorlonpluginfiles += fs.readFileSync(path.join(__dirname, "../public/vorlon/plugins/" + plugin.foldername + "/vorlon." + plugin.foldername + ".interfaces.js"));
+                            }
                             vorlonpluginfiles += fs.readFileSync(path.join(__dirname, "../public/vorlon/plugins/" + plugin.foldername + "/vorlon." + plugin.foldername + ".client.js"));
                         }
                     }
@@ -239,8 +235,8 @@ export module VORLON {
             var dashboardio = io
                 .of("/dashboard")
                 .on("connection", socket => {
-                this.addDashboard(socket);
-            });
+                    this.addDashboard(socket);
+                });
         }
 
         public get io(): any {
@@ -267,9 +263,9 @@ export module VORLON {
             res.end();
         }
 
-        
+
         public addClient(socket: SocketIO.Socket): void {
-            socket.on("helo",(message: string) => {
+            socket.on("helo", (message: string) => {
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var metadata = receiveMessage.metadata;
                 var data = receiveMessage.data;
@@ -284,6 +280,7 @@ export module VORLON {
                 var dashboard = this.dashboards[metadata.sessionId];
                 if (client == undefined) {
                     var client = new vorloncontext.VORLON.Client(metadata.clientId, data.ua, socket, ++session.nbClients);
+                    client.identity = data.identity;
                     session.connectedClients[metadata.clientId] = client;
                     this._log.debug(formatLog("PLUGIN", "Send Add Client to dashboard (" + client.displayId + ")[" + data.ua + "] socketid = " + socket.id, receiveMessage));
                     if (dashboard != undefined) {
@@ -295,11 +292,13 @@ export module VORLON {
                 else {
                     client.socket = socket;
                     client.opened = true;
+                    client.identity = data.identity;
                     if (dashboard != undefined) {
                         dashboard.emit("addclient", client.data);
                     }
                     this._log.debug(formatLog("PLUGIN", "Client Reconnect (" + client.displayId + ")[" + data.ua + "] socketid=" + socket.id, receiveMessage));
                 }
+                this._sessions.update(metadata.sessionId, session);
 
                 this._log.debug(formatLog("PLUGIN", "Number clients in session : " + (session.nbClients + 1), receiveMessage));
                 
@@ -313,7 +312,7 @@ export module VORLON {
                 }
             });
 
-            socket.on("message",(message: string) => {
+            socket.on("message", (message: string) => {
                 //this._log.warn("CLIENT message " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var dashboard = this.dashboards[receiveMessage.metadata.sessionId];
@@ -341,7 +340,7 @@ export module VORLON {
                 }
             });
 
-            socket.on("clientclosed",(message: string) => {
+            socket.on("clientclosed", (message: string) => {
                 //this._log.warn("CLIENT clientclosed " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 this._sessions.all().forEach((session) => {
@@ -358,12 +357,13 @@ export module VORLON {
                             this._log.debug(formatLog("PLUGIN", "Client Close " + socket.id, receiveMessage));
                         }
                     }
+                    this._sessions.update(session.sessionId, session);
                 });
             });
         }
 
         public addDashboard(socket: SocketIO.Socket): void {
-            socket.on("helo",(message: string) => {
+            socket.on("helo", (message: string) => {
                 //this._log.warn("DASHBOARD helo " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var metadata = receiveMessage.metadata;
@@ -407,10 +407,13 @@ export module VORLON {
                 }
                 else {
                     this._log.debug(formatLog("DASHBOARD", "No client selected for this dashboard"));
+                    if (session != undefined) {
+                        this._sessions.update(metadata.sessionId, session);
+                    }
                 }
             });
 
-            socket.on("reload",(message: string) => {
+            socket.on("reload", (message: string) => {
                 //this._log.warn("DASHBOARD reload " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var metadata = receiveMessage.metadata;
@@ -429,7 +432,7 @@ export module VORLON {
                                 if (client.socket != null) {
                                     this._log.debug(formatLog("DASHBOARD", "Send reload to socketid :" + client.socket.id, receiveMessage));
                                     client.socket.emit("reload", metadata.listenClientId);
-                                    
+
                                 }
                             }
                             else {
@@ -440,10 +443,13 @@ export module VORLON {
                 }
                 else {
                     this._log.debug(formatLog("DASHBOARD", "No client selected for this dashboard"));
+                    if (session != undefined) {
+                        this._sessions.update(metadata.sessionId, session);
+                    }
                 }
             });
 
-            socket.on("protocol",(message: string) => {
+            socket.on("protocol", (message: string) => {
                 //this._log.warn("DASHBOARD protocol " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var metadata = receiveMessage.metadata;
@@ -457,7 +463,7 @@ export module VORLON {
                 }
             });
 
-            socket.on("identify",(message: string) => {
+            socket.on("identify", (message: string) => {
                 //this._log.warn("DASHBOARD identify " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var metadata = receiveMessage.metadata;
@@ -478,10 +484,13 @@ export module VORLON {
                 }
                 else {
                     this._log.error(formatLog("DASHBOARD", " No client to identify...", receiveMessage));
+                    if (session != undefined) {
+                        this._sessions.update(metadata.sessionId, session);
+                    }
                 }
             });
 
-            socket.on("message",(message: string) => {
+            socket.on("message", (message: string) => {
                 //this._log.warn("DASHBOARD message " + message);
                 var receiveMessage = <VorlonMessage>JSON.parse(message);
                 var metadata = receiveMessage.metadata;
@@ -500,10 +509,14 @@ export module VORLON {
                 }
                 else {
                     this._log.error(formatLog("DASHBOARD", "No client for message", receiveMessage));
+                    var session = this._sessions.get(metadata.sessionId);
+                    if (session != undefined) {
+                        this._sessions.update(metadata.sessionId, session);
+                    }
                 }
             });
 
-            socket.on("disconnect",(message: string) => {      
+            socket.on("disconnect", (message: string) => {      
                 //this._log.warn("DASHBOARD disconnect " + message);          
                 //Delete dashboard session
                 for (var dashboard in this.dashboards) {
@@ -521,7 +534,7 @@ export module VORLON {
                 });
             });
         }
-    }   
+    }
 
     export interface VorlonMessageMetadata {
         pluginID: string;
@@ -545,6 +558,7 @@ export module VORLON {
                 buffer.push(" ");
             }
         }
+
         buffer.push(" : ");
 
         if (vmessage) {
@@ -571,7 +585,7 @@ export module VORLON {
             }
         }
 
-        
+
         return buffer.join("");
     }
 
