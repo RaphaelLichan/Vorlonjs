@@ -7,7 +7,10 @@ var gulp = require('gulp'),
     webserver = require('gulp-webserver'),
     less = require('gulp-less'),
     gulputil = require('gulp-util'),
-    gulpFilter = require('gulp-filter');
+    gulpFilter = require('gulp-filter'),
+    path = require('path'),
+    sourcemaps = require('gulp-sourcemaps'),
+    zip = require('gulp-zip');
 
 /// ********
 
@@ -80,7 +83,7 @@ gulp.task('scripts-noplugin-plugins', ['typescript-to-js-plugins'], function() {
 });
 
 gulp.task('concat-webstandards-rules-plugins', ['typescript-to-js-plugins'], function () {
-	return gulp.src(['./Plugins/release/**/webstandards/rules/*.js', './Plugins/release/**/webstandards/client.js'])
+	return gulp.src(['./Plugins/release/**/webstandards/rules/*.js', './Plugins/release/**/webstandards/vorlon.webstandards.client.js'])
 		.pipe(concat('vorlon.webstandards.client.js'))
 		.pipe(gulp.dest('Plugins/release/plugins/webstandards/'));
 });
@@ -89,21 +92,89 @@ gulp.task('concat-webstandards-rules-plugins', ['typescript-to-js-plugins'], fun
  * Specific task that need to be handled for specific plugins.
  * Do not hesitate to update it if you need to add your own files
  */
-gulp.task('scripts-specific-plugins-plugins', function() {
+gulp.task('scripts-specific-plugins-plugins', ['scripts-plugins'], function() {
     // Babylon Inspector
     gulp.src([
         'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.interfaces.js',
         'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.client.js'
     ])
-        .pipe(concat('vorlon.babylonInspector.client.min.js'))
+        .pipe(concat('vorlon.babylonInspector.client.js'))
         .pipe(gulp.dest('Plugins/release/plugins/babylonInspector/'));
 
-    return gulp.src([
+    gulp.src([
         'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.interfaces.js',
         'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.dashboard.js'
     ])
+        .pipe(concat('vorlon.babylonInspector.dashboard.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/babylonInspector/'));
+        
+    gulp.src([
+        'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.interfaces.min.js',
+        'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.client.min.js'
+    ])
+        .pipe(concat('vorlon.babylonInspector.client.min.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/babylonInspector/'));
+
+    gulp.src([
+        'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.interfaces.min.js',
+        'Plugins/release/plugins/babylonInspector/vorlon.babylonInspector.dashboard.min.js'
+    ])
         .pipe(concat('vorlon.babylonInspector.dashboard.min.js'))
         .pipe(gulp.dest('Plugins/release/plugins/babylonInspector/'));
+        
+    // Office
+    gulp.src([
+        'Plugins/release/plugins/office/vorlon.office.interfaces.js',
+        'Plugins/release/plugins/office/vorlon.office.tools.js',
+        'Plugins/release/plugins/office/vorlon.office.document.js',
+        'Plugins/release/plugins/office/vorlon.office.outlook.js',
+        'Plugins/release/plugins/office/vorlon.office.powerpoint.js',
+        'Plugins/release/plugins/office/vorlon.office.dashboard.js'
+    ])
+        .pipe(concat('vorlon.office.dashboard.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/office/'));
+
+    
+
+     gulp.src([
+        'Plugins/release/plugins/office/vorlon.office.interfaces.min.js',
+        'Plugins/release/plugins/office/vorlon.office.tools.min.js',
+        'Plugins/release/plugins/office/vorlon.office.document.min.js',
+        'Plugins/release/plugins/office/vorlon.office.outlook.min.js',
+        'Plugins/release/plugins/office/vorlon.office.powerpoint.min.js',
+        'Plugins/release/plugins/office/vorlon.office.dashboard.min.js'
+    ])
+        .pipe(concat('vorlon.office.dashboard.min.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/office/'));     
+           
+    // NG Inspector
+    gulp.src([
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.interfaces.js',
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.client.js'
+    ])
+        .pipe(concat('vorlon.ngInspector.client.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/ngInspector/'));
+
+    gulp.src([
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.interfaces.js',
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.dashboard.js'
+    ])
+        .pipe(concat('vorlon.ngInspector.dashboard.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/ngInspector/'));
+        
+    gulp.src([
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.interfaces.min.js',
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.client.min.js'
+    ])
+        .pipe(concat('vorlon.ngInspector.client.min.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/ngInspector/'));
+
+    return gulp.src([
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.interfaces.min.js',
+        'Plugins/release/plugins/ngInspector/vorlon.ngInspector.dashboard.min.js'
+    ])
+        .pipe(concat('vorlon.ngInspector.dashboard.min.js'))
+        .pipe(gulp.dest('Plugins/release/plugins/ngInspector/'));
 
 });
 
@@ -113,8 +184,6 @@ gulp.task('scripts-specific-plugins-plugins', function() {
  */
 gulp.task('scripts-plugins', ['concat-webstandards-rules-plugins'], function () {
 
-    gulp.start('scripts-specific-plugins-plugins');
-    
     return gulp.src([
             './Plugins/**/vorlon.interactiveConsole.interfaces.js',
             './Plugins/**/vorlon.interactiveConsole.client.js',
@@ -150,13 +219,25 @@ gulp.task('scripts-plugins', ['concat-webstandards-rules-plugins'], function () 
             './Plugins/**/device/vorlon.device.dashboard.js',
             './Plugins/**/webstandards/vorlon.webstandards.client.js',
             './Plugins/**/webstandards/vorlon.webstandards.interfaces.js',
-            './Plugins/**/webstandards/vorlon.webstandards.dashboard.js'
+            './Plugins/**/webstandards/vorlon.webstandards.dashboard.js',
+            './Plugins/**/office/vorlon.office.client.js',
+            './Plugins/**/office/vorlon.office.interfaces.js',
+            './Plugins/**/office/vorlon.office.tools.js',
+            './Plugins/**/office/vorlon.office.outlook.js',
+            './Plugins/**/office/vorlon.office.powerpoint.js',
+            './Plugins/**/office/vorlon.office.document.js',
+            './Plugins/**/office/vorlon.office.dashboard.js',
+            './Plugins/**/babylonInspector/vorlon.babylonInspector.client.js',
+            './Plugins/**/babylonInspector/vorlon.babylonInspector.interfaces.js',
+            './Plugins/**/babylonInspector/vorlon.babylonInspector.dashboard.js',
+            './Plugins/**/uwp/vorlon.uwp.client.js',
+            './Plugins/**/uwp/vorlon.uwp.dashboard.js',
         ])
         .pipe(rename(function (path) {
                 path.extname = ".min.js";
               })
             )
-/*   .pipe(uglify())*/
+        .pipe(uglify())
         .pipe(gulp.dest('./Plugins'));
 });
 
@@ -196,7 +277,7 @@ gulp.task('copyDTS-plugins', function () {
 /**
  * The default task, call the tasks: scripts, scripts-noplugin, copy, copyPlugins
  */
-gulp.task('default-plugins', ['scripts-plugins', 'scripts-noplugin-plugins', 'less-to-css-plugins'], function() {
+gulp.task('default-plugins', ['scripts-plugins', 'scripts-noplugin-plugins', 'less-to-css-plugins', 'scripts-specific-plugins-plugins'], function() {
     return gulp.start('copy-plugins', 'copyPlugins-plugins', 'copyDTS-plugins');
 });
 
@@ -223,7 +304,7 @@ gulp.task('watch-plugins', function() {
  * Web server task to serve a local test page
  */
 gulp.task('webserver', function() {
-  return gulp.src('Plugins/samples')
+  return gulp.src('client samples/webpage')
     .pipe(webserver({
       livereload: false,
       open: 'http://localhost:1338/index.html',
@@ -240,22 +321,26 @@ gulp.task('webserver', function() {
 
 gulp.task('typescript-to-js-server', function() {
   var tsResult = gulp.src(['./Server/**/*.ts', '!./Server/node_modules', '!./Server/node_modules/**'], { base: './' })
+                      .pipe(sourcemaps.init())
                       .pipe(typescript({ noExternalResolve: true, target: 'ES5', module: 'commonjs' }));
 
   return tsResult.js
+            .pipe(sourcemaps.write({
+              includeContent: false,
+              // Return relative source map root directories per file.
+              sourceRoot: function (file) {
+                var sourceFile = path.join(file.cwd, file.sourceMap.file);
+                return path.relative(path.dirname(sourceFile), file.cwd);
+              }
+            }))
             .pipe(gulp.dest('.'));
 });
 
 gulp.task('build-server', ['typescript-to-js-server'], function() {
 	//copy server files to desktop app
   return gulp.src([
-  		'./config.json',
-  		'cert/**',
-  		'config/**',
-  		'public/**',
-  		'Scripts/**',
-  		'views/**',
-  	], { base: './Plugins' })
+  		'./server/**/*.*'
+  	])
   	.pipe(gulp.dest('./desktop/app/vorlon'));
 });
 
@@ -272,8 +357,15 @@ gulp.task('watch-server', function() {
 });
 
 
-gulp.task('watch', function() {
-  gulp.run("watch-server");
-  gulp.run("watch-plugins");
-  gulp.run("webserver");
+gulp.task('watch', ["watch-server", "watch-plugins", "webserver"], function() {
+});
+
+/**
+ * Zip task used within the build to create an archive that will be deployed using VSTS Release Management
+ */
+
+gulp.task('zip', function() {
+    gulp.src(['./**/*', '!./DeploymentTools/**', '!./desktop/**', '!./plugins library/**', '!./Plugins/**', '!./Tests/**', '!./desktop', '!./plugins library', '!./DeploymentTools', '!./Plugins', '!./Tests'])
+        .pipe(zip('deployment-package.zip'))
+        .pipe(gulp.dest('DeploymentTools'));
 });
